@@ -1,12 +1,9 @@
 import PySpin
 import sys
 import datetime
-import numpy as np
 import time
 import cv2
-from PIL import Image as im
-import moviepy.video.io.ImageSequenceClip as mp
-import os, psutil
+import psutil
 
 
 ###############################################################################
@@ -15,8 +12,8 @@ import os, psutil
 VideoFormat = PySpin.H264Option  #leave it as is to record mp4 format videos
 
 FramerateToSet = 10    #this will change the camera's acquisiton framerate and also the videofile framerate, but should not be more than 30
-SecondsToRecord = 10  #change this number according to how long you want your video file to be
-PartsToRecord = 1     #how many times you want to record. e.g. 3pcs of 1 hour video
+SecondsToRecord = 30  #change this number according to how long you want your video file to be
+PartsToRecord = 3     #in how many parts you want to record the above set time // for example: 180s with 3 parts will be 3pcs of 60s video
 VideoBitrate = 1000000  #change this to the wanted bitrate of the video file // 1Mbit should be OK
 ScaleUpperLimit = 310.0
 ScaleLowerLimit = 290.0
@@ -69,74 +66,66 @@ def acquire_and_save(cam, nodemap):
 
         print("Acquiring images...")
 
-        #images = list()
-        #processor = PySpin.ImageProcessor()
-        #processor.SetColorProcessing(PySpin.HQ_LINEAR)
-
-
         print('Frame rate to be set to %d...' % FramerateToSet)
+        
+        FramesPerCycle = int(NUM_IMAGES/PartsToRecord)
+        part = 0
 
-        vid_filename = "Record" + "_{date:%Y-%m-%d_%H:%M:%S}".format(date=datetime.datetime.now()) + ".mp4"
-        size = (640, 480)
-        vid = cv2.VideoWriter(vid_filename,cv2.VideoWriter_fourcc(*'mp4v'), FramerateToSet, size)
+        while part < PartsToRecord:
+            part += 1
 
+            #defining parameters of video file
+            vid_filename = "Record_part" + str(part) + "_{date:%Y-%m-%d_%H:%M:%S}".format(date=datetime.datetime.now()) + ".mp4"
+            size = (640, 480)
+            vid = cv2.VideoWriter(vid_filename,cv2.VideoWriter_fourcc(*'mp4v'), FramerateToSet, size)
 
-        for i in range(NUM_IMAGES):
-            try:
-                process_start = time.time()
+            #capturing frames from FLIR camera and appending them to video file
+            for i in range(FramesPerCycle):
+                try:
+                    #measure time of frame processing
+                    process_start = time.time()
 
-                image_result = cam.GetNextImage(1000)
+                    image_result = cam.GetNextImage(1000)
 
-                if image_result.IsIncomplete():
-                    print("Image %d is incomplete. Status: %d" % (i, image_result.GetImageStatus()))
+                    if image_result.IsIncomplete():
+                        print("Image %d is incomplete. Status: %d" % (i, image_result.GetImageStatus()))
 
-                else:
-                    #width = image_result.GetWidth()
-                    #height = image_result.GetHeight()
-                    print("Grabbed image %d" % i)
+                    else:
+                        print("Grabbed image %d of %d for part %d" % (i+1, FramesPerCycle, part))
 
+                        #converting grabbed frame's data to correct format
+                        image_data = image_result.GetNDArray()
+                        image_result.Release()
 
-                    image_data = image_result.GetNDArray()
-                    image_result.Release()
+                        #norming values from ~24000-26000 interval to 0-255 interval
+                        image_data = image_data - 23900
+                        image_data = cv2.convertScaleAbs(image_data, alpha=(255.0/2200.0))
 
-                    #image_data = np.array(image_data)
-                    image_data = image_data - 23900
-                    image_data = cv2.convertScaleAbs(image_data, alpha=(255.0/2200.0))
+                        #converting color so cv2.VideoWriter can process it
+                        image_data = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
 
-                    image_data = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
+                        #writing single image to video file
+                        vid.write(image_data)
 
-                    vid.write(image_data)
+                        print("Appended image %d of %d for part %d" % (i+1, FramesPerCycle, part))
 
-                    #images.append(image_data)
+                    #measure time and memory usage
+                    print("Frame process time: " + str(time.time()-process_start))
+                    print('RAM memory % used:', psutil.virtual_memory()[2])
 
+                    #failsafe in case memory runs out
+                    if psutil.virtual_memory()[2] > 95.0:
+                        break
 
+                except PySpin.SpinnakerException as ex:
+                    print('Error: %s' % ex)
+                    result = False
 
-                    print("Appended image %d of %d" % (i, NUM_IMAGES))
-
-                print("Frame process time: " + str(time.time()-process_start))
-                print('RAM memory % used:', psutil.virtual_memory()[2])
-                if psutil.virtual_memory()[2] > 95.0:
-                    break
-
-            except PySpin.SpinnakerException as ex:
-                print('Error: %s' % ex)
-                result = False
-
-
-        #for i in range(len(images)):
-        #    vid.write(images[i])
-
-        vid.release()
-
-
-        #vid = mp.ImageSequenceClip(images, fps=FramerateToSet)
-        #vid.write_videofile('my_video.mp4')
+            vid.release()
 
         cam.EndAcquisition()
-        #vid.release()
 
-
-        print('Video saved at %s.mp4' % vid_filename)
+        print('Video saved at %s' % vid_filename)
 
     except PySpin.SpinnakerException as ex:
         print('Error: %s' % ex)
@@ -145,6 +134,7 @@ def acquire_and_save(cam, nodemap):
     return result
 
 def print_device_info(nodemap):
+    #this function only prints device info and parameters
     try:
         result = True
         node_device_information = PySpin.CCategoryPtr(nodemap.GetNode('DeviceInformation'))
@@ -180,20 +170,6 @@ def run_single_camera(cam):
         err = acquire_and_save(cam, nodemap)
         if err < 0:
             return err
-
-        #result &= save_list_to_avi(nodemap_tldevice, images)
-
-                    #part = 0
-                    #while part < PartsToRecord:
-                    #    part += 1
-                    #
-                    #    # Acquire list of images
-                    #    err, images = acquire_images(cam, nodemap)
-                    #    if err < 0:
-                    #        return err
-                    #
-                    #    # Save the image list to file
-                    #    result &= save_list_to_avi(nodemap_tldevice, images, part)
 
         # Deinitialize camera
         cam.DeInit()
