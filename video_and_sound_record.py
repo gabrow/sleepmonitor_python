@@ -14,9 +14,9 @@ import wave
 ##### VIDEO #####
 VideoFormat = PySpin.H264Option  #leave it as is to record mp4 format videos
 
-FramerateToSet = 10    #this will change the camera's acquisiton framerate and also the videofile framerate, but should not be more than 30
-SecondsToRecord = 1800  #change this number according to how long you want your video file to be
-PartsToRecord = 3      #in how many parts you want to record the above set time // for example: 180s with 3 parts will be 3pcs of 60s video
+FramerateToSet = 20    #this will change the camera's acquisiton framerate and also the videofile framerate, but should not be more than 30
+SecondsToRecord = 20  #change this number according to how long you want your video file to be
+PartsToRecord = 1      #in how many parts you want to record the above set time // for example: 180s with 3 parts will be 3pcs of 60s video
 VideoBitrate = 1000000  #change this to the wanted bitrate of the video file // 1Mbit should be OK
 ScaleUpperLimit = 310.0
 ScaleLowerLimit = 290.0
@@ -121,7 +121,7 @@ def acquire_and_save(cam, nodemap):
                         print("Image %d is incomplete. Status: %d" % (i, image_result.GetImageStatus()))
 
                     else:
-                        print("Grabbed image %d of %d for part %d" % (i+1, FramesPerCycle, part))
+                        print("Grabbed image %d of %d for part %d/%d" % (i+1, FramesPerCycle, part, PartsToRecord))
 
                         #converting grabbed frame's data to correct format
                         image_data = image_result.GetNDArray()
@@ -133,6 +133,9 @@ def acquire_and_save(cam, nodemap):
 
                         #converting color so cv2.VideoWriter can process it
                         image_data = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
+
+                        cv2.imshow("View",image_data)
+                        cv2.waitKey(1)
 
                         #writing single image to video file
                         vid.write(image_data)
